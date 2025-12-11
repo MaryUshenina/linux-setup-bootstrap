@@ -1,88 +1,190 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+# ==========================
+#  CONFIG + GLOBALS
+# ==========================
 
-echo "========== Updating system =========="
-sudo apt update
-sudo apt upgrade -y
+FAILED=()
+SUCCESS=()
 
-echo "========== Installing base tools =========="
-sudo apt install -y \
-    curl wget git htop nano vim \
-    ca-certificates software-properties-common apt-transport-https \
-    gpg lsb-release
+log() {
+    echo -e "\n\033[1;34m[INFO]\033[0m $1"
+}
 
-echo "========== Installing Nemo (F3 two-panel manager) =========="
-sudo apt install -y nemo
+ok() {
+    echo -e "\033[1;32m[SUCCESS]\033[0m $1"
+}
 
-echo "========== Installing Docker =========="
-# Remove old versions
-sudo apt remove -y docker docker-engine docker.io containerd runc || true
+fail() {
+    echo -e "\033[1;31m[FAILED]\033[0m $1"
+}
 
-# Install dependencies
-sudo apt install -y ca-certificates curl gnupg
+# Функция для надёжного выполнения шагов
+install_step() {
+    local name="$1"
+    shift
+    local cmd="$@"
 
-# Add Docker’s official GPG key
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
+    log "Installing: $name"
 
-# Add Docker repo
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    if eval "$cmd"; then
+        ok "$name installed"
+        SUCCESS+=("$name")
+    else
+        fail "$name not installed"
+        FAILED+=("$name")
+    fi
+}
 
-# Update and install
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# ==========================
+#  START
+# ==========================
 
-# Allow running Docker without sudo
-sudo usermod -aG docker $USER
+log "Updating system"
+sudo apt update && sudo apt upgrade -y
 
-echo "========== Installing Chrome =========="
-wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O chrome.deb
-sudo apt install -y ./chrome.deb
-rm chrome.deb
 
-echo "========== Installing Telegram =========="
-sudo apt install -y telegram-desktop
+# ==========================
+# BASE TOOLS
+# ==========================
 
-echo "========== Installing MegaSync =========="
-# Add Mega repo
-wget -qO - https://mega.nz/linux/MEGAsync/xUbuntu_24.04/Release.key | sudo apt-key add -
-echo "deb https://mega.nz/linux/MEGAsync/xUbuntu_24.04/ ./" | sudo tee /etc/apt/sources.list.d/megasync.list
+install_step "curl" "sudo apt install -y curl"
+install_step "wget" "sudo apt install -y wget"
+install_step "git" "sudo apt install -y git"
+install_step "vim" "sudo apt install -y vim"
+install_step "nano" "sudo apt install -y nano"
+install_step "htop" "sudo apt install -y htop"
 
-sudo apt update
-sudo apt install -y megasync
 
-echo "========== Installing GitKraken =========="
-wget https://release.axocdn.com/linux/gitkraken-amd64.deb -O gitkraken.deb
-sudo apt install -y ./gitkraken.deb
-rm gitkraken.deb
+# ==========================
+# NEMO (F3 двухпанельный менеджер)
+# ==========================
 
-echo "========== Installing DBeaver =========="
-wget https://dbeaver.io/files/dbeaver-ce_latest_amd64.deb -O dbeaver.deb
-sudo apt install -y ./dbeaver.deb
-rm dbeaver.deb
+install_step "Nemo file manager" "sudo apt install -y nemo"
 
-echo "========== Installing Postman =========="
-sudo snap install postman
 
-echo "========== Installing JetBrains Toolbox (PHPStorm installer) =========="
-wget https://download-cdn.jetbrains.com/toolbox/jetbrains-toolbox-2.3.2.32632.tar.gz -O toolbox.tar.gz
-tar -xzf toolbox.tar.gz
-rm toolbox.tar.gz
+# ==========================
+# DOCKER (официальный способ)
+# ==========================
 
-TOOLBOX_DIR=$(find . -maxdepth 1 -type d -name "jetbrains-toolbox*" | head -n 1)
+install_step "Docker prerequisites" "sudo apt install -y ca-certificates curl gnupg"
 
-if [ -d "$TOOLBOX_DIR" ]; then
-    echo "Running JetBrains Toolbox installer..."
-    "$TOOLBOX_DIR"/jetbrains-toolbox &
+install_step "Docker GPG key" "
+    sudo install -m 0755 -d /etc/apt/keyrings &&
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg |
+      sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg &&
+    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+"
+
+install_step "Docker repo" "
+    echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+    https://download.docker.com/linux/ubuntu \
+    \$(. /etc/os-release && echo \$VERSION_CODENAME) stable\" |
+    sudo tee /etc/apt/sources.list.d/docker.list
+"
+
+install_step "Docker Engine" "
+    sudo apt update &&
+    sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+"
+
+install_step "Add user to docker group" "sudo usermod -aG docker \$USER"
+
+
+# ==========================
+# GOOGLE CHROME
+# ==========================
+
+install_step "Chrome download" "
+    wget -O chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+"
+
+install_step "Chrome install" "
+    sudo apt install -y ./chrome.deb
+"
+
+rm -f chrome.deb
+
+
+
+# ==========================
+# TELEGRAM
+# ==========================
+
+install_step "Telegram Desktop" "sudo apt install -y telegram-desktop"
+
+
+# ==========================
+# MEGASYNC
+# ==========================
+
+install_step "MegaSync repo" "
+    wget -qO - https://mega.nz/linux/MEGAsync/xUbuntu_24.04/Release.key |
+      sudo gpg --dearmor -o /usr/share/keyrings/megasync.gpg &&
+    echo \"deb [signed-by=/usr/share/keyrings/megasync.gpg] https://mega.nz/linux/MEGAsync/xUbuntu_24.04/ ./\" |
+      sudo tee /etc/apt/sources.list.d/megasync.list
+"
+
+install_step "MegaSync install" "
+    sudo apt update &&
+    sudo apt install -y megasync
+"
+
+
+# ==========================
+# GITKRAKEN
+# ==========================
+
+install_step "GitKraken download" "
+    wget -O gitkraken.deb https://release.axocdn.com/linux/gitkraken-amd64.deb
+"
+
+install_step "GitKraken install" "
+    sudo apt install -y ./gitkraken.deb
+"
+
+rm -f gitkraken.deb
+
+
+# ==========================
+# DBEAVER
+# ==========================
+
+install_step "DBeaver download" "
+    wget -O dbeaver.deb https://dbeaver.io/files/dbeaver-ce_latest_amd64.deb
+"
+
+install_step "DBeaver install" "
+    sudo apt install -y ./dbeaver.deb
+"
+
+rm -f dbeaver.deb
+
+
+# ==========================
+# POSTMAN
+# ==========================
+
+install_step "Postman" "sudo snap install postman"
+
+
+
+# ==========================
+# FINAL REPORT
+# ==========================
+
+echo -e "\n==========================================="
+echo -e "\033[1;32m   INSTALLATION COMPLETE\033[0m"
+echo "==========================================="
+
+echo -e "\n\033[1;34mInstalled successfully:\033[0m"
+printf ' - %s\n' "${SUCCESS[@]}"
+
+echo -e "\n\033[1;31mFailed to install:\033[0m"
+if [ ${#FAILED[@]} -eq 0 ]; then
+    echo " - None 🎉"
 else
-    echo "ERROR: Toolbox directory not found."
+    printf ' - %s\n' "${FAILED[@]}"
 fi
 
-echo "========== ALL DONE =========="
-echo "Restart your terminal or log out and log in again for Docker group changes."
+echo -e "\nAll done!"
